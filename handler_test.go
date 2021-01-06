@@ -18,7 +18,6 @@ var _ = Describe("Handler", func() {
 
 		Context("With no subcommand", func() {
 			cmd := exec.Command(utils.CompletePath("", "handler"))
-			a := []byte("expected 'start' or 'finish' subcommands")
 
 			outbuf, errbuf := bytes.Buffer{}, bytes.Buffer{}
 			cmd.Stderr = &errbuf
@@ -26,15 +25,12 @@ var _ = Describe("Handler", func() {
 
 			It("should result in an error message", func() {
 				cmd.Run()
-				b := make([]byte, len(a), cap(a))
-				errbuf.Read(b)
-				Expect(b).To(Equal(a))
+				Expect(outbuf.String()).Should(ContainSubstring("expected 'start' or 'finish' subcommands"))
 			})
 		})
 
 		Context("With invalid subcommand", func() {
 			cmd := exec.Command(utils.CompletePath("", "handler"), "invalid")
-			a := []byte("expected 'start' or 'finish' subcommands")
 
 			outbuf, errbuf := bytes.Buffer{}, bytes.Buffer{}
 			cmd.Stderr = &errbuf
@@ -42,9 +38,7 @@ var _ = Describe("Handler", func() {
 
 			It("should result in an error message", func() {
 				cmd.Run()
-				b := make([]byte, len(a), cap(a))
-				errbuf.Read(b)
-				Expect(b).To(Equal(a))
+				Expect(outbuf.String()).Should(ContainSubstring("expected 'start' or 'finish' subcommands"))
 			})
 		})
 

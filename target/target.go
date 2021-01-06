@@ -3,16 +3,20 @@ package target
 import (
 	"strings"
 
-	etc3 "github.com/iter8-tools/etc3/api/v2alpha1"
 	"github.com/iter8-tools/iter8-kfserving-handler/experiment"
 )
 
 // Target interface represents the target of an iter8 experiment.
 type Target interface {
 	Error() error
-	InitializeTrafficSplit(exp *experiment.Experiment) error
-	GetVersionInfo(exp *experiment.Experiment) *etc3.VersionInfo
-	SetNewBaseline(newBaseline string) error
+	InitializeTrafficSplit() Target
+	GetVersionInfo() Target
+	GetOldBaseline() Target
+	GetNewBaseline() Target
+	SetNewBaseline() Target
+	SetExperiment(exp *experiment.Experiment) Target
+	GetTarget() Target
+	SetVersionInfoInExperiment() Target
 }
 
 // ISType is the type of InferenceService object. In KFServing, this may be v1beta1 or v1alpha2.

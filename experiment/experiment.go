@@ -17,8 +17,8 @@ func GetExperiment() (*Experiment, error) {
 	return nil, nil
 }
 
-// GetTarget returns the target of the experiment.
-func (e *Experiment) GetTarget() string {
+// GetTargetRef returns the target string for the experiment.
+func (e *Experiment) GetTargetRef() string {
 	return e.Spec.Target
 }
 

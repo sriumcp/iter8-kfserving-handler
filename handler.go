@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"io"
 	"io/ioutil"
 	"os"
@@ -14,6 +13,45 @@ import (
 	"github.com/iter8-tools/iter8-kfserving-handler/v1beta1"
 )
 
+// OSExiter interface enables exiting the current program.
+type OSExiter interface {
+	Exit(code int)
+}
+type iter8OS struct{}
+
+func (m *iter8OS) Exit(code int) {
+	os.Exit(code)
+}
+
+var osExiter OSExiter
+
+// // K8sClient interface enables getting a k8s client
+// type K8sClient interface {
+// 	getK8sClient(kubeconfigPath *string) (runtimeclient.Client, error)
+// }
+// type iter8ctlK8sClient struct{}
+
+// func (k iter8ctlK8sClient) getK8sClient(kubeconfigPath *string) (runtimeclient.Client, error) {
+// 	crScheme := runtime.NewScheme()
+// 	err := v2alpha1.AddToScheme(crScheme)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	config, err := clientcmd.BuildConfigFromFlags("", *kubeconfigPath)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	rc, err := runtimeclient.New(config, client.Options{
+// 		Scheme: crScheme,
+// 	})
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	return rc, nil
+// }
+
+// var k8sClient K8sClient
+
 // stdin enables dependency injection for console input (stdin)
 var stdin io.Reader
 
@@ -23,7 +61,7 @@ var stdout io.Writer
 // stderr enables dependency injection for console error output (stderr)
 var stderr io.Writer
 
-// init initializes stdin/out/err, and logging.
+// init initializes stdin/out/err, logging, and osExiter.
 func init() {
 	// stdio
 	stdin = os.Stdin
@@ -41,45 +79,46 @@ func init() {
 		log.SetReportCaller(true)
 		log.SetLevel(logLevel)
 	}
+	// osExiter
+	osExiter = &iter8OS{}
 }
 
 // main serves as the entry point for handler CLI.
 func main() {
 	// h := handler.Builder(stdin, stdout, stderr)
 	if len(os.Args) < 2 {
-		fmt.Fprintln(stderr, "expected 'start' or 'finish' subcommands")
+		log.Error("expected 'start' or 'finish' subcommands")
+		osExiter.Exit(1)
 	} else if os.Args[1] == "start" || os.Args[1] == "finish" {
-		/* Everywhere below, if you encounter error, print error and exit */
-		exp, _ := experiment.GetExperiment()
-		targetRef := exp.GetTarget()
+		exp, err := experiment.GetExperiment()
+		if err != nil {
+			log.Error("cannot get experiment", err)
+			osExiter.Exit(1)
+		}
+		targetRef := exp.GetTargetRef()
 		targetType := target.GetTargetType(targetRef)
 		var targ target.Target
 		if targetType == target.V1alpha2 {
-			targ = v1alpha2.GetTarget(targetRef)
+			targ = v1alpha2.TargetBuilder()
 		} else {
-			targ = v1beta1.GetTarget(targetRef)
+			targ = v1beta1.TargetBuilder()
 		}
+		targ.SetExperiment(exp).GetTarget()
+
 		if os.Args[1] == "start" {
-			targ.InitializeTrafficSplit(exp)
-			exp.SetVersionInfo(targ.GetVersionInfo(exp))
+			targ.InitializeTrafficSplit().GetVersionInfo().SetVersionInfoInExperiment()
 		} else { // finish
 			if exp.IsSingleVersion() {
-				os.Exit(0)
+				osExiter.Exit(0)
 			}
-			oldBaseline, err := exp.GetBaseline()
-			if err != nil {
-				// scream
-				os.Exit(1)
-			}
-			recommendedBaseline, err := exp.GetRecommendedBaseline()
-			if err == nil {
-				targ.SetNewBaseline(recommendedBaseline)
-			} else {
-				targ.SetNewBaseline(oldBaseline)
-			}
+			targ.GetOldBaseline().GetNewBaseline().SetNewBaseline()
 		}
-		fmt.Fprintln(stdout, "all good")
+		if targ.Error() != nil {
+			log.Error(targ.Error())
+			osExiter.Exit(1)
+		}
 	} else {
-		fmt.Fprintln(stderr, "expected 'start' or 'finish' subcommands")
+		log.Error("expected 'start' or 'finish' subcommands")
+		osExiter.Exit(1)
 	}
 }
