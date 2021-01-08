@@ -1,0 +1,60 @@
+name: Build, test and push etc3 controller
+
+on:
+  push:
+    branches:
+      - main # Publish `main` as Docker `latest` image.
+    tags:
+      - v* # Publish `v1.2.3` tags as releases.
+  pull_request: # Run tests for any PRs.
+
+jobs:
+  # Ensure tests pass on PRs.
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Set up Go 1.x
+      uses: actions/setup-go@v2
+      with:
+        go-version: ^1.15
+    - name: Check out code into the Go module directory
+      uses: actions/checkout@v2
+    - name: Test
+      run: go test ./...
+
+  # Push iter8-kfserving-handler image to dockerhub
+  build-and-push:
+    # Ensure test job passes before pushing image.		
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    steps:
+    - uses: actions/checkout@v2
+    - uses: docker/setup-buildx-action@v1
+    - uses: docker/login-action@v1
+      with:
+        username: ${{ secrets.DOCKERHUB_USERNAME }}
+        password: ${{ secrets.DOCKERHUB_SECRET }}
+    - name: Get version
+      run: |
+        tarref=$(echo "${{ github.ref }}" | sed -e 's,.*/\(.*\),\1,')
+        # Strip "v" prefix from tagref
+        if [[ "${{ github.ref }}" == "refs/tags/"* ]]; then
+          echo "VERSION=$(echo $tarref | sed -e 's/^v//')" >> $GITHUB_ENV
+        elif [[ "${{ github.ref }}" == *"main" ]]; then
+          echo "VERSION=latest" >> $GITHUB_ENV
+        fi
+    - name: Get owner and repo
+      run: |
+        ownerrepo=${{ github.repository }}
+        owner=$(echo $ownerrepo | cut -f1 -d/)
+        if [[ "$owner" == "iter8-tools" ]]; then
+          owner=iter8
+        fi
+        echo "OWNER=$owner" >> $GITHUB_ENV
+        echo "REPO=$(echo $ownerrepo | cut -f2 -d/)" >> $GITHUB_ENV
+    - uses: docker/build-push-action@v2
+      with:
+        context: .
+        tags: ${{ env.OWNER }}/${{ env.REPO }}:${{ env.VERSION }}
+        push: true

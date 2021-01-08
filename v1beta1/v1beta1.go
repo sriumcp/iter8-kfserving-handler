@@ -7,8 +7,11 @@ import (
 	"strings"
 	"time"
 
+	etc3 "github.com/iter8-tools/etc3/api/v2alpha1"
+
 	"github.com/iter8-tools/iter8-kfserving-handler/experiment"
 	"github.com/iter8-tools/iter8-kfserving-handler/target"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -63,15 +66,10 @@ func getNN(targetRef string) (string, string, error) {
 	if len(tc) == 2 {
 		return tc[0], tc[1], nil
 	}
-	if len(tc) == 3 {
-		if tc[0] == "v1beta1" {
-			return tc[1], tc[2], nil
-		}
-	}
 	return "", "", errors.New("Invalid targetRef")
 }
 
-// Fetch fetches the v1alpha2 InferenceService object fetched from the Kubernetes cluster and populates the target struct with it.
+// Fetch fetches the v1beta1 InferenceService object fetched from the Kubernetes cluster and populates the target struct with it.
 func (t *Target) Fetch(targetRef string) target.Target {
 	if t.err != nil {
 		return t
@@ -79,7 +77,7 @@ func (t *Target) Fetch(targetRef string) target.Target {
 	// figure out name and namespace of the target
 	namespace, name, err := getNN(targetRef)
 	if err != nil {
-		t.err = errors.New("invalid target specification; v1beta1 target needs to be in one of two forms: 'inference-service-namespace/inference-service-name' or 'v1beta1/inference-service-namespace/inference-service-name'")
+		t.err = errors.New("invalid target specification; v1beta1 target needs to be of the form: 'inference-service-namespace/inference-service-name'")
 		return t
 	}
 	// go get inferenceService or set an error
@@ -94,6 +92,22 @@ func (t *Target) Fetch(targetRef string) target.Target {
 		Name:      name,
 	}, t.infService)
 	return t
+}
+
+// GetConditions unmarshals conditions from status and returns a slice of conditions.
+func GetConditions(t *Target) ([]target.Condition, error) {
+	if t.err != nil {
+		return nil, errors.New("GetConditions called on erroneous target")
+	}
+	type resource struct {
+		Status struct {
+			Conditions []target.Condition `json:"conditions"`
+		} `json:"status"`
+	}
+	var ro = resource{}
+	err := runtime.DefaultUnstructuredConverter.
+		FromUnstructured(t.infService.Object, &ro)
+	return ro.Status.Conditions, err
 }
 
 // getCond is a helper function for fetching the target and getting its readiness.
@@ -128,77 +142,142 @@ func EnsureReadiness(t *Target) bool {
 	return false
 }
 
-// InitializeTrafficSplit initializes traffic split for the target.
-// The value of the field spec.predictor.canaryTrafficPercent is set to 1 (i.e., 1%).
-// After this step, the handler waits for (<=) 200 sec to ensure InferenceService object is ready.
-// If any of the above steps fail, the handler exits with an error.
-func (t *Target) InitializeTrafficSplit() target.Target {
+// SetCanaryTrafficPercent sets spec.predictor.canaryTrafficPercent field to the given value.
+// After this step, the handler waits for (<=) 180 sec to ensure InferenceService object is ready.
+// If any of the above steps fail, the method returns after setting an error.
+func (t *Target) SetCanaryTrafficPercent(p int64) target.Target {
 	if t.err != nil {
 		return t
 	}
 	// Make sure t.infService has already been fetched.
 	if t.infService == nil {
-		t.err = errors.New("unable to initialize traffic split; uninitialize inference service object")
+		t.err = errors.New("unable to set canary traffic split; uninitialized inference service object")
 		return t
 	}
-	// Set spec.predictor.canaryTrafficPercent to 1%
-	payload := []target.PatchInt64Value{{
-		Op:    "replace",
-		Path:  "/spec/predictor/canaryTrafficPercent",
-		Value: 1,
-	}}
+	// Set spec.predictor.canaryTrafficPercent to p
+	payload := []struct {
+		Op    string `json:"op"`
+		Path  string `json:"path"`
+		Value int64  `json:"value"`
+	}{{"replace", "/spec/predictor/canaryTrafficPercent", p}}
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
 		t.err = errors.New("unable to marshal initial traffic split patch")
 		return t
 	}
+	// we have made sure InferenceService object exists in the cluster, above.
 	t.err = t.k8sclient.Patch(context.Background(), t.infService, client.RawPatch(types.JSONPatchType, payloadBytes))
-
-	// There needs to be a readiness check here...
+	if t.err != nil {
+		return t
+	}
 	r := EnsureReadiness(t)
 	if !r {
-		t.err = errors.New("unable to ensure readiness of inference service even after 180 seconds")
+		t.err = errors.New("post-patch: unable to ensure readiness of inference service even after 180 seconds")
 	}
 	return t
 }
 
-// GetVersionInfo constructs the VersionInfo object based on the target and the experiment, and sets this within the target.
-func (t *Target) GetVersionInfo() target.Target {
-	return t
+// InitializeTrafficSplit initializes traffic split for the target.
+// The value of the field spec.predictor.canaryTrafficPercent is set to 1 (i.e., 1%).
+// After this step, the handler waits for (<=) 180 sec to ensure InferenceService object is ready.
+// If any of the above steps fail, the method returns after setting an error.
+func (t *Target) InitializeTrafficSplit() target.Target {
+	return t.SetCanaryTrafficPercent(1)
 }
 
-// GetConditions unmarshals conditions from status and returns a slice of conditions.
-func GetConditions(t *Target) ([]target.Condition, error) {
+// GetVersionInfo constructs the VersionInfo object based on the target and returns it.
+func (t *Target) GetVersionInfo() (*etc3.VersionInfo, error) {
+	// candidate
+	cRev, b1, err1 := unstructured.NestedString(t.infService.Object, "status", "components", "predictor", "latestReadyRevision")
+	// baseline
+	bRev, b2, err2 := unstructured.NestedString(t.infService.Object, "status", "components", "predictor", "previousReadyRevision")
+
+	if b1 == false || b2 == false || err1 != nil || err2 != nil {
+		return nil, errors.New("unable to extract default and canary revisions from target")
+	}
+
+	ns, name, err3 := getNN(t.exp.GetTargetRef())
+	if err3 != nil {
+		return nil, errors.New("unable to extract name and namespace of target")
+	}
+
+	vi := etc3.VersionInfo{
+		Baseline: etc3.VersionDetail{
+			Name: "default",
+			Tags: &map[string]string{"revision": bRev},
+		},
+		Candidates: []etc3.VersionDetail{
+			{
+				Name: "canary",
+				Tags: &map[string]string{"revision": cRev},
+				WeightObjRef: &v1.ObjectReference{
+					Kind:       "InferenceService",
+					Namespace:  ns,
+					Name:       name,
+					APIVersion: "serving.kubeflow.org/v1beta1",
+					FieldPath:  "/spec/predictor/canaryTrafficPercent",
+				},
+			},
+		},
+	}
+	return &vi, nil
+}
+
+// SetVersionInfoInExperiment sets version info in the experiment associated with this target.
+func (t *Target) SetVersionInfoInExperiment() target.Target {
 	if t.err != nil {
-		return nil, errors.New("GetConditions called on erroneous target")
+		return t
 	}
-	type resource struct {
-		Status struct {
-			Conditions []target.Condition `json:"conditions"`
-		} `json:"status"`
+	// get versionInfo
+	var vi *etc3.VersionInfo
+	vi, t.err = t.GetVersionInfo()
+	if t.err != nil {
+		return t
 	}
-	var ro = resource{}
-	err := runtime.DefaultUnstructuredConverter.
-		FromUnstructured(t.infService.Object, &ro)
-	return ro.Status.Conditions, err
-}
+	if vi == nil {
+		t.err = errors.New("Could not get versionInfo for experiment")
+		return t
+	}
+	if !t.exp.IsSingleVersion() && len(vi.Candidates) == 0 {
+		t.err = errors.New("expected baseline and candidate; did not find candidate during GetVersionInfo")
+		return t
+	}
+	// patch experiment with versionInfo
+	payload := []struct {
+		Op    string            `json:"op"`
+		Path  string            `json:"path"`
+		Value *etc3.VersionInfo `json:"value"`
+	}{{"replace", "/spec/versionInfo", vi}}
 
-// GetOldBaseline gets the baseline from v1beta1 InferenceService and sets it within the target.
-func (t *Target) GetOldBaseline() target.Target {
-	return t
-}
-
-// GetNewBaseline gets the recommended baseline from experiment object and sets it within the target.
-func (t *Target) GetNewBaseline() target.Target {
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		t.err = errors.New("unable to marshal experiment versionInfo patch")
+		return t
+	}
+	t.err = t.k8sclient.Patch(context.Background(), t.exp.Experiment, client.RawPatch(types.JSONPatchType, payloadBytes))
 	return t
 }
 
 // SetNewBaseline sets a new baseline (i.e., 'default' version) within the target
 func (t *Target) SetNewBaseline() target.Target {
-	return t
-}
-
-// SetVersionInfoInExperiment sets version info in the experiment associated with this target.
-func (t *Target) SetVersionInfoInExperiment() target.Target {
-	return t
+	if t.err != nil {
+		return t
+	}
+	if t.exp == nil {
+		t.err = errors.New("method SetNewBaseline called on a target with nil experiment")
+		return t
+	}
+	if t.exp.IsSingleVersion() {
+		t.err = errors.New("method SetNewBaseline called on a target with a single-version experiment")
+		return t
+	}
+	recommendedBaseline, err := t.exp.GetRecommendedBaseline()
+	if err != nil {
+		t.err = errors.New("error in getting recommended baseline from experiment")
+		return t
+	}
+	if recommendedBaseline == "canary" {
+		return t.SetCanaryTrafficPercent(100)
+	}
+	return t.SetCanaryTrafficPercent(0)
 }

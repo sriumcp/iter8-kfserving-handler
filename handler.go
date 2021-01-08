@@ -9,8 +9,6 @@ import (
 
 	"github.com/iter8-tools/iter8-kfserving-handler/experiment"
 	"github.com/iter8-tools/iter8-kfserving-handler/k8sclient"
-	"github.com/iter8-tools/iter8-kfserving-handler/target"
-	"github.com/iter8-tools/iter8-kfserving-handler/v1alpha2"
 	"github.com/iter8-tools/iter8-kfserving-handler/v1beta1"
 )
 
@@ -75,28 +73,20 @@ func main() {
 			osExiter.Exit(1)
 		}
 		targetRef := exp.GetTargetRef()
-		targetType := target.GetTargetType(targetRef)
-		var targ target.Target
-		if targetType == target.V1alpha2 {
-			targ = v1alpha2.TargetBuilder()
-		} else {
-			targ = v1beta1.TargetBuilder()
-		}
+		var targ = v1beta1.TargetBuilder()
 		targ.SetK8sClient(client).SetExperiment(exp).Fetch(targetRef)
-		if os.Args[1] == "start" {
-			// TBT: start
-			targ.InitializeTrafficSplit().GetVersionInfo().SetVersionInfoInExperiment()
-		} else { // finish
+		if os.Args[1] == "start" { // handle start
+			targ.InitializeTrafficSplit().SetVersionInfoInExperiment()
+		} else { // handle finish
 			if exp.IsSingleVersion() {
 				osExiter.Exit(0)
 			}
-			targ.GetOldBaseline().GetNewBaseline().SetNewBaseline()
+			targ.SetNewBaseline()
 		}
 		if targ.Error() != nil {
 			log.Error(targ.Error())
 			osExiter.Exit(1)
 		}
-		// TBT: end
 	} else {
 		log.Error("expected 'start' or 'finish' subcommands")
 		osExiter.Exit(1)
