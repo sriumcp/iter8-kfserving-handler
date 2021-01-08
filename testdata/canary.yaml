@@ -1,0 +1,60 @@
+apiVersion: serving.kubeflow.org/v1beta1
+kind: InferenceService
+metadata:
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"serving.kubeflow.org/v1beta1","kind":"InferenceService","metadata":{"annotations":{},"name":"my-model","namespace":"default"},"spec":{"predictor":{"canaryTrafficPercent":10,"tensorflow":{"storageUri":"gs://kfserving-samples/models/tensorflow/flowers-2"}}}}
+  creationTimestamp: "2021-01-07T18:30:59Z"
+  finalizers:
+  - inferenceservice.finalizers
+  generation: 5
+  name: my-model
+  namespace: default
+  resourceVersion: "106377"
+  selfLink: /apis/serving.kubeflow.org/v1beta1/namespaces/default/inferenceservices/my-model
+  uid: c8518057-90c2-4c19-b3e2-abc99c3a32b0
+spec:
+  predictor:
+    canaryTrafficPercent: 10
+    tensorflow:
+      name: kfserving-container
+      resources:
+        limits:
+          cpu: "1"
+          memory: 2Gi
+        requests:
+          cpu: "1"
+          memory: 2Gi
+      runtimeVersion: 1.14.0
+      storageUri: gs://kfserving-samples/models/tensorflow/flowers-2
+status:
+  address:
+    url: http://my-model.default.svc.cluster.local/v1/models/my-model:predict
+  components:
+    predictor:
+      address:
+        url: http://my-model-predictor-default.default.svc.cluster.local
+      latestCreatedRevision: my-model-predictor-default-dc8x6
+      latestReadyRevision: my-model-predictor-default-dc8x6
+      previousReadyRevision: my-model-predictor-default-cj2j7
+      trafficPercent: 10
+      url: http://my-model-predictor-default.default.example.com
+  conditions:
+  - lastTransitionTime: "2021-01-07T21:22:17Z"
+    status: "True"
+    type: IngressReady
+  - lastTransitionTime: "2021-01-07T21:22:17Z"
+    severity: Info
+    status: "True"
+    type: PredictorConfigurationReady
+  - lastTransitionTime: "2021-01-07T21:22:17Z"
+    status: "True"
+    type: PredictorReady
+  - lastTransitionTime: "2021-01-07T18:33:49Z"
+    severity: Info
+    status: "True"
+    type: PredictorRouteReady
+  - lastTransitionTime: "2021-01-07T21:22:17Z"
+    status: "True"
+    type: Ready
+  url: http://my-model.default.example.com
