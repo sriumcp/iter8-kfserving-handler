@@ -8,6 +8,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/iter8-tools/iter8-kfserving-handler/experiment"
+	"github.com/iter8-tools/iter8-kfserving-handler/k8sclient"
 	"github.com/iter8-tools/iter8-kfserving-handler/target"
 	"github.com/iter8-tools/iter8-kfserving-handler/v1alpha2"
 	"github.com/iter8-tools/iter8-kfserving-handler/v1beta1"
@@ -25,32 +26,7 @@ func (m *iter8OS) Exit(code int) {
 
 var osExiter OSExiter
 
-// // K8sClient interface enables getting a k8s client
-// type K8sClient interface {
-// 	getK8sClient(kubeconfigPath *string) (runtimeclient.Client, error)
-// }
-// type iter8ctlK8sClient struct{}
-
-// func (k iter8ctlK8sClient) getK8sClient(kubeconfigPath *string) (runtimeclient.Client, error) {
-// 	crScheme := runtime.NewScheme()
-// 	err := v2alpha1.AddToScheme(crScheme)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	config, err := clientcmd.BuildConfigFromFlags("", *kubeconfigPath)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	rc, err := runtimeclient.New(config, client.Options{
-// 		Scheme: crScheme,
-// 	})
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	return rc, nil
-// }
-
-// var k8sClient K8sClient
+var k8s k8sclient.K8s
 
 // stdin enables dependency injection for console input (stdin)
 var stdin io.Reader
@@ -61,7 +37,7 @@ var stdout io.Writer
 // stderr enables dependency injection for console error output (stderr)
 var stderr io.Writer
 
-// init initializes stdin/out/err, logging, and osExiter.
+// init initializes stdin/out/err, logging, osExiter, and k8s.
 func init() {
 	// stdio
 	stdin = os.Stdin
@@ -81,6 +57,8 @@ func init() {
 	}
 	// osExiter
 	osExiter = &iter8OS{}
+	// k8s
+	k8s = &k8sclient.Iter8K8s{}
 }
 
 // main serves as the entry point for handler CLI.
@@ -90,7 +68,8 @@ func main() {
 		log.Error("expected 'start' or 'finish' subcommands")
 		osExiter.Exit(1)
 	} else if os.Args[1] == "start" || os.Args[1] == "finish" {
-		exp, err := experiment.GetExperiment()
+		client, err := k8s.GetClient()
+		exp, err := experiment.GetExperiment(client)
 		if err != nil {
 			log.Error("cannot get experiment", err)
 			osExiter.Exit(1)
@@ -103,9 +82,9 @@ func main() {
 		} else {
 			targ = v1beta1.TargetBuilder()
 		}
-		targ.SetExperiment(exp).GetTarget()
-
+		targ.SetK8sClient(client).SetExperiment(exp).Fetch(targetRef)
 		if os.Args[1] == "start" {
+			// TBT: start
 			targ.InitializeTrafficSplit().GetVersionInfo().SetVersionInfoInExperiment()
 		} else { // finish
 			if exp.IsSingleVersion() {
@@ -117,6 +96,7 @@ func main() {
 			log.Error(targ.Error())
 			osExiter.Exit(1)
 		}
+		// TBT: end
 	} else {
 		log.Error("expected 'start' or 'finish' subcommands")
 		osExiter.Exit(1)
