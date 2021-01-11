@@ -24,15 +24,16 @@ func (m *iter8OS) Exit(code int) {
 
 var osExiter OSExiter
 
+// k8s enables the use of fake clients in tests.
 var k8s k8sclient.K8s
 
-// stdin enables dependency injection for console input (stdin)
+// stdin enables dependency injection for console input.
 var stdin io.Reader
 
-// stdout enables dependency injection for console output (stdout)
+// stdout enables dependency injection for console output.
 var stdout io.Writer
 
-// stderr enables dependency injection for console error output (stderr)
+// stderr enables dependency injection for console error output.
 var stderr io.Writer
 
 // init initializes stdin/out/err, logging, osExiter, and k8s.
@@ -66,21 +67,28 @@ func main() {
 		log.Error("expected 'start' or 'finish' subcommands")
 		osExiter.Exit(1)
 	} else if os.Args[1] == "start" || os.Args[1] == "finish" {
+		// get a k8s client;
+		// in a normal invocation, this will use in-cluster k8s config
+		// in tests, this will be a fake client
 		client, err := k8s.GetClient()
+		// fetch the iter8 experiment
 		exp, err := experiment.GetExperiment(client)
 		if err != nil {
 			log.Error("cannot get experiment", err)
 			osExiter.Exit(1)
 		}
 		targetRef := exp.GetTargetRef()
+		// construct a target object
 		var targ = v1beta1.TargetBuilder()
 		targ.SetK8sClient(client).SetExperiment(exp).Fetch(targetRef)
 		if os.Args[1] == "start" { // handle start
+			// this is the start handler logic
 			targ.InitializeTrafficSplit().SetVersionInfoInExperiment()
 		} else { // handle finish
 			if exp.IsSingleVersion() {
 				osExiter.Exit(0)
 			}
+			// this is the finish handler logic
 			targ.SetNewBaseline()
 		}
 		if targ.Error() != nil {
