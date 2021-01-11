@@ -1,3 +1,4 @@
+// Package v1beta1 provides types and methods for manipulating v1beta1 KFServing InferenceService objects.
 package v1beta1
 
 import (

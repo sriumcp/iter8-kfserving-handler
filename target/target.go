@@ -1,3 +1,4 @@
+// Package target provides types and methods for targets of iter8 experiments.
 package target
 
 import (

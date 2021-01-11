@@ -1,3 +1,4 @@
+// Package experiment enables extraction of useful information from experiment objects and also setting VersionInfo within them.
 package experiment
 
 import (
