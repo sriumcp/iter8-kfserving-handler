@@ -1,3 +1,7 @@
+// Package main implements the handler logic used in the iter8-kfserving project: https://github.com/iter8-tools/iter8-kfserving
+// It enables set up and completion of iter8-kfserving experiments. For more details on how it is invoked during experiments, see https://github.com/iter8-tools/iter8-kfserving/wiki/Under-the-Hood.
+// CLI usage: `handler start` and `handler finish`
+// In the above usage commands, handler is the built executable. Both these commands expect environment variables EXPERIMENT_NAME and EXPERIMENT_NAMESPACE to be set.
 package main
 
 import (

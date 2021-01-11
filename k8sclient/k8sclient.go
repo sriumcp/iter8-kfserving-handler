@@ -1,3 +1,4 @@
+// Package k8sclient enables in-cluster interaction with Kubernetes API server.
 package k8sclient
 
 import (
