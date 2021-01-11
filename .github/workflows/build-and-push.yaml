@@ -1,4 +1,4 @@
-name: Build, test and push etc3 controller
+name: Build, test and push iter8-kfserving-handler
 
 on:
   push:
@@ -31,6 +31,7 @@ jobs:
         echo $(go list -f {{.Target}} golang.org/x/lint/golint)
         $(go list -f {{.Target}} golang.org/x/lint/golint) -set_exit_status=1 ./...      
 
+  # Compute and upload code coverage
   code-coverage:
     needs: build-and-test
     runs-on: ubuntu-latest
