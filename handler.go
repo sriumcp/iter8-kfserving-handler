@@ -84,12 +84,16 @@ func main() {
 		if os.Args[1] == "start" { // handle start
 			// this is the start handler logic
 			targ.InitializeTrafficSplit().SetVersionInfoInExperiment()
+			log.Trace("Set version info in experiment")
+			log.Trace("Target error: ", targ.Error())
 		} else { // handle finish
 			if exp.IsSingleVersion() {
 				osExiter.Exit(0)
 			}
 			// this is the finish handler logic
 			targ.SetNewBaseline()
+			log.Trace("Set new baseline")
+			log.Trace("Target error: ", targ.Error())
 		}
 		if targ.Error() != nil {
 			log.Error(targ.Error())

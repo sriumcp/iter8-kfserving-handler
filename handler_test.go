@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"os"
 	"testing"
@@ -64,6 +65,22 @@ var expectedVersionInfo = &etc3.VersionInfo{
 	},
 }
 
+// Mocking os.Exit function
+type testOS struct{}
+
+func (t *testOS) Exit(code int) {
+	if code > 0 {
+		panic(fmt.Sprintf("Exiting with error code %v", code))
+	} else {
+		panic("Normal exit")
+	}
+}
+
+// initTestOS registers the mock OS struct (testOS) defined above
+func initTestOS() {
+	osExiter = &testOS{}
+}
+
 func TestMain(t *testing.T) {
 	c, err := getK8sClientWithTargetFromFile("canaryv1beta1.json")
 	if err != nil {
@@ -86,4 +103,69 @@ func TestMain(t *testing.T) {
 	os.Unsetenv("EXPERIMENT_NAMESPACE")
 	c.Get(context.Background(), client.ObjectKeyFromObject(exp), exp)
 	assert.Equal(t, expectedVersionInfo, exp.Spec.VersionInfo)
+}
+
+func TestMainNoArgs(t *testing.T) {
+	initTestOS()
+	k8s = &myk8s{fake.NewClientBuilder().Build()}
+	os.Args = []string{"./handler"}
+	assert.Panics(t, func() { main() })
+}
+
+func TestMainInvalidArgs(t *testing.T) {
+	initTestOS()
+	k8s = &myk8s{fake.NewClientBuilder().Build()}
+	os.Args = []string{"./handler", "invalid"}
+	assert.Panics(t, func() { main() })
+}
+
+func TestMainCannotGetExperiment(t *testing.T) {
+	initTestOS()
+	k8s = &myk8s{fake.NewClientBuilder().Build()}
+	os.Args = []string{"./handler", "start"}
+	assert.Panics(t, func() { main() })
+}
+
+func TestMainSingleVersionFinish(t *testing.T) {
+	c, err := getK8sClientWithTargetFromFile("canaryv1beta1.json")
+	if err != nil {
+		t.Fatal("Cannot get k8s client with target from file")
+	}
+	exp := etc3.NewExperiment("myexp", "default").
+		WithTarget("default/my-model").
+		WithStrategy(etc3.StrategyTypePerformance).
+		Build()
+	err = c.Create(context.Background(), exp)
+	if err != nil {
+		t.Fatal("Cannot populate fake cluster with experiment", err)
+	}
+	k8s = &myk8s{c}
+	os.Args = []string{"./handler", "finish"}
+	os.Setenv("EXPERIMENT_NAME", "myexp")
+	os.Setenv("EXPERIMENT_NAMESPACE", "default")
+	assert.PanicsWithValue(t, "Normal exit", func() { main() })
+	os.Unsetenv("EXPERIMENT_NAME")
+	os.Unsetenv("EXPERIMENT_NAMESPACE")
+}
+
+func TestMainFinishError(t *testing.T) {
+	c, err := getK8sClientWithTargetFromFile("canaryv1beta1.json")
+	if err != nil {
+		t.Fatal("Cannot get k8s client with target from file")
+	}
+	exp := etc3.NewExperiment("myexp", "default").
+		WithTarget("default/my-model").
+		WithStrategy(etc3.StrategyTypeCanary).
+		Build()
+	err = c.Create(context.Background(), exp)
+	if err != nil {
+		t.Fatal("Cannot populate fake cluster with experiment", err)
+	}
+	k8s = &myk8s{c}
+	os.Args = []string{"./handler", "finish"}
+	os.Setenv("EXPERIMENT_NAME", "myexp")
+	os.Setenv("EXPERIMENT_NAMESPACE", "default")
+	assert.Panics(t, func() { main() })
+	os.Unsetenv("EXPERIMENT_NAME")
+	os.Unsetenv("EXPERIMENT_NAMESPACE")
 }
