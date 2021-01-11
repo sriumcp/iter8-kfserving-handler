@@ -106,9 +106,18 @@ func TestFetch(t *testing.T) {
 	assert.NoError(t, targ.err)
 }
 
+func TestFetchBadTarget(t *testing.T) {
+	c := getK8sClientWithMyTarget()
+	targ := TargetBuilder()
+	targ.SetK8sClient(c).Fetch("myname")
+	assert.Error(t, targ.err)
+}
+
 func TestFetchNonExisting(t *testing.T) {
 	c := fake.NewClientBuilder().Build()
 	targ := TargetBuilder()
+	targ.retries = 3
+	targ.interval = 1
 	targ.SetK8sClient(c).Fetch("myns/myname")
 	assert.Error(t, targ.err)
 }

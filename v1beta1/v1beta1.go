@@ -25,6 +25,8 @@ type Target struct {
 	infService *unstructured.Unstructured
 	exp        *experiment.Experiment
 	k8sclient  client.Client
+	retries    uint          // number of retry attempts for fetch / readiness checks
+	interval   time.Duration // interval between the above attempts
 }
 
 // TargetBuilder returns an initial v1beta1 target struct pointer.
@@ -34,6 +36,8 @@ func TargetBuilder() *Target {
 		infService: nil,
 		exp:        nil,
 		k8sclient:  nil,
+		retries:    18,
+		interval:   10,
 	}
 }
 
@@ -69,7 +73,24 @@ func getNN(targetRef string) (string, string, error) {
 	return "", "", errors.New("Invalid targetRef")
 }
 
-// Fetch fetches the v1beta1 InferenceService object fetched from the Kubernetes cluster and populates the target struct with it.
+// fetch is a helper function to fetch the v1beta1 InferenceService object from the Kubernetes cluster.
+func (t *Target) fetch(namespace string, name string) (*unstructured.Unstructured, error) {
+	isvc := &unstructured.Unstructured{}
+	isvc.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "serving.kubeflow.org",
+		Kind:    "InferenceService",
+		Version: "v1beta1",
+	})
+	err := t.k8sclient.Get(context.Background(), client.ObjectKey{
+		Namespace: namespace,
+		Name:      name,
+	}, isvc)
+	return isvc, err
+}
+
+// Fetch fetches the v1beta1 InferenceService object from the Kubernetes cluster and populates the target struct with it.
+// InferenceService may be unavailable at the start of this call. So, Fetch periodically attempts to fetch the InferenceService object for 180 sec.
+// Upon success, it returns the fetched object; if it does not succeed in 180 secs, it returns an error.
 func (t *Target) Fetch(targetRef string) target.Target {
 	if t.err != nil {
 		return t
@@ -81,16 +102,24 @@ func (t *Target) Fetch(targetRef string) target.Target {
 		return t
 	}
 	// go get inferenceService or set an error
-	t.infService = &unstructured.Unstructured{}
-	t.infService.SetGroupVersionKind(schema.GroupVersionKind{
-		Group:   "serving.kubeflow.org",
-		Kind:    "InferenceService",
-		Version: "v1beta1",
-	})
-	t.err = t.k8sclient.Get(context.Background(), client.ObjectKey{
-		Namespace: namespace,
-		Name:      name,
-	}, t.infService)
+	// lines from here until return need to end up in a for loop.
+	isvc, err := t.fetch(namespace, name)
+	if err == nil {
+		t.infService = isvc
+		return t
+	}
+	ticker := time.NewTicker(t.interval * time.Second)
+	for i := 0; i < int(t.retries); i++ {
+		select {
+		case <-ticker.C:
+			isvc, err := t.fetch(namespace, name)
+			if err == nil {
+				t.infService = isvc
+				return t
+			}
+		}
+	}
+	t.err = errors.New("unable to fetch target; " + err.Error())
 	return t
 }
 
@@ -129,8 +158,8 @@ func EnsureReadiness(t *Target) bool {
 	if ready {
 		return true
 	}
-	ticker := time.NewTicker(10 * time.Second)
-	for i := 0; i < 18; i++ {
+	ticker := time.NewTicker(t.interval * time.Second)
+	for i := 0; i < int(t.retries); i++ {
 		select {
 		case <-ticker.C:
 			ready = getCond(t)
