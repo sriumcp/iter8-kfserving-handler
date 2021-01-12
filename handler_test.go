@@ -48,12 +48,12 @@ func (k *myk8s) GetClient() (client.Client, error) {
 var expectedVersionInfo = &etc3.VersionInfo{
 	Baseline: etc3.VersionDetail{
 		Name: "default",
-		Tags: &map[string]string{"revision": "my-model-predictor-default-cj2j7"},
+		Tags: &map[string]string{"revision": "my-model-predictor-default-wl2cv"},
 	},
 	Candidates: []etc3.VersionDetail{
 		{
 			Name: "canary",
-			Tags: &map[string]string{"revision": "my-model-predictor-default-dc8x6"},
+			Tags: &map[string]string{"revision": "my-model-predictor-default-zwjbq"},
 			WeightObjRef: &v1.ObjectReference{
 				Kind:       "InferenceService",
 				Namespace:  "default",
