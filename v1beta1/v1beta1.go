@@ -218,9 +218,9 @@ func (t *Target) InitializeTrafficSplit() target.Target {
 // GetVersionInfo constructs the VersionInfo object based on the target and returns it.
 func (t *Target) GetVersionInfo() (*etc3.VersionInfo, error) {
 	// candidate
-	cRev, b1, err1 := unstructured.NestedString(t.infService.Object, "status", "components", "predictor", "latestReadyRevision")
+	cRev, b1, err1 := unstructured.NestedString(t.infService.Object, "status", "components", "predictor", "latestCreatedRevision")
 	// baseline
-	bRev, b2, err2 := unstructured.NestedString(t.infService.Object, "status", "components", "predictor", "previousReadyRevision")
+	bRev, b2, err2 := unstructured.NestedString(t.infService.Object, "status", "components", "predictor", "latestRolledoutRevision")
 
 	if b1 == false || b2 == false || err1 != nil || err2 != nil {
 		return nil, errors.New("unable to extract default and canary revisions from target")
